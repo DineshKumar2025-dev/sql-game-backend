@@ -1,0 +1,77 @@
+# SQL Detective API
+
+FastAPI service that runs read-only SQLite for training and cases. The Vite dev server proxies `/api` to `http://127.0.0.1:8000` (see `sql-game/vite.config.js` — it must match your `uvicorn` port).
+
+## Setup
+
+```powershell
+cd sql-game-backend/backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+### Auth (Postgres, optional)
+
+User signup/login uses your `users` table. In `api/.env` the server ultimately needs a single Postgres URL in code (`config.DATABASE_URL`). You can supply it in **either** of these ways (not both needed):
+
+- **`DATABASE_URL`** — e.g. `postgresql://USER:PASSWORD@127.0.0.1:5432/DBNAME`  
+- **Or** omit `DATABASE_URL` and set **`DB_HOST`**, **`DB_NAME`**, **`DB_USER`**, and optional **`DB_PORT`**, **`DB_PASSWORD`**: the app **builds** the same kind of URL at startup. If `DATABASE_URL` is set, it **wins** and the split variables are not used for the connection string.
+- Optional: **`DB_SCHEMA`** (default `public`) — sets `search_path` on each connection
+
+Also set **`JWT_SECRET`** (long random string in production).
+
+If `DATABASE_URL` is missing, the rest of the API still works; `/api/auth/*` returns `503` until you configure the database.
+
+Expected table (base schema):
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    user_id     SERIAL PRIMARY KEY,
+    user_name   VARCHAR(50)  NOT NULL UNIQUE,
+    phone_number VARCHAR(15) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Phone-based login:** users sign in with **phone + password** (not `user_name`). The API normalizes `phone_number` to **7–15 digits** (other characters are stripped) for storage and login.
+
+- `POST /api/auth/signup` — body: **`user_name`** (display name, unique), **`phone_number`** (required, unique), **`password`**
+- `POST /api/auth/login` — body: **`phone_number`**, **`password`**
+- `GET /api/auth/me` — header: `Authorization: Bearer <token>`
+
+If you already created `users` with a nullable `phone_number`, add constraints after fixing data (no duplicate phones, all rows have phones):
+
+```sql
+-- Strip non-digits in existing rows, then remove duplicates and NULLs manually before:
+UPDATE users
+SET phone_number = REGEXP_REPLACE(COALESCE(phone_number, ''), '[^0-9]+', '', 'g')
+WHERE phone_number IS NOT NULL;
+-- resolve duplicate phones (keep one row per number), then:
+-- ALTER TABLE users ALTER COLUMN phone_number SET NOT NULL;
+-- CREATE UNIQUE INDEX IF NOT EXISTS users_phone_number_key ON users (phone_number);
+```
+(Uncomment the last two lines after the data is valid.)
+
+Auth does **not** send SMS, OTP, or phone verification. Phone is stored (digits only) and used to find the user at login.
+
+Interactive docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) when the server is running.
+
+## Run
+
+```powershell
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Open the React app with `npm run dev` in `sql-game`. If this API is down, the UI still falls back to in-browser `sql.js` for cases; **auth** requires the API and database.
+
+**Training/case `session_id`:** The `/api/session` and `/api/session/.../init` routes use **in-memory** SQLite on the server. If you get **`404` with `Unknown session`**, the server was restarted and old client session IDs are invalid. The app now creates a fresh session on each load; if you still see it, hard-refresh the page (or the UI will retry with a new session when possible).
+
+### Signup / login returns **502 Bad Gateway** in the browser
+
+The Vite dev server proxies `/api` to the URL in `sql-game/vite.config.js` (by default `http://127.0.0.1:8000`). A **502** almost always means nothing is listening there, or `uvicorn` is on a **different port**.
+
+1. Start the API: `uvicorn app.main:app --reload --host 127.0.0.1 --port 8000` (from the `backend` folder, venv active).
+2. If you use another port, change the `target` in `vite.config.js` to match, or run `uvicorn` on **8000**.
+3. Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) in a browser — you should see the FastAPI docs when the server is up.
+4. For auth, set `backend/.env` (Postgres + `JWT_SECRET`) or `/api/auth/signup` will return **503** with a different message, not 502.
