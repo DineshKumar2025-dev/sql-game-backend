@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.api.levels import level
+from app.api.levels.levelsdata import LEVEL_CONFIGS
 
 router = APIRouter()
 
@@ -10,11 +11,6 @@ class VerifyRequest(BaseModel):
     query: str
     level: int
     sublevel: int
-
-
-LEVEL_HANDLERS = {
-    1: level.verify_sublevel,
-}
 
 
 @router.post("/verifycode")
@@ -31,19 +27,20 @@ def verifycode(payload: VerifyRequest) -> dict[str, object]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only SELECT queries are allowed.",
         )
-    func = LEVEL_HANDLERS.get(payload.level)
-    if func is None:
+
+    if payload.level not in LEVEL_CONFIGS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Level {payload.level} handler not registered.",
+            detail=f"Level {payload.level} is not configured.",
         )
 
-    level_result = func(sql, payload.sublevel)
+    level_result = level.verify_sublevel(sql, payload.level, payload.sublevel)
+
     result = {
         "message": "Code verified" if level_result.get("is_correct") else "Query did not match expected output.",
         "is_correct": level_result.get("is_correct", False),
         "error": level_result.get("error"),
         "output": level_result.get("output", []),
-        "level1_output": level_result.get("level1_output", []),
+        "level_output": level_result.get("level_output", []),
     }
     return result

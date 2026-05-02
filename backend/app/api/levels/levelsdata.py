@@ -1,3 +1,24 @@
+"""
+Per-level content: schema DDL, seed rows per table, and canonical SQL per sublevel.
+
+Add a new level by appending one entry to `LEVEL_CONFIGS` (ddl + tables + static_queries).
+Verification compares the player's SELECT result set to the result of `static_queries[sublevel]`
+on the same seeded DB — no separate `level_output` to maintain.
+"""
+
+from __future__ import annotations
+
+from typing import TypedDict
+
+
+class LevelConfig(TypedDict):
+    """One playable level: in-memory SQLite schema, seed data, expected queries by sub_index."""
+
+    ddl: str
+    tables: dict[str, list[dict[str, object]]]
+    static_queries: dict[int, str]
+
+
 LEVEL1_DATA = {
     "employees": [
         {
@@ -139,10 +160,50 @@ LEVEL1_DATA = {
     ],
 }
 
-LEVEL1_STATIC_QUERIES = {
-    1: "SELECT name, department, role, status FROM employees;",
+LEVEL1_STATIC_QUERIES: dict[int, str] = {
+    1: "SELECT name, department, role, status FROM employees where status = 'missing';",
     2: "SELECT name, status FROM employees WHERE status <> 'active';",
     3: "SELECT name, department, clearance FROM employees WHERE department = 'Engineering' AND clearance IN ('HIGH', 'CLASSIFIED');",
     4: "SELECT employee_id, location, timestamp, action FROM access_logs WHERE location = 'Server Room' AND timestamp >= '2047-09-14 22:00:00';",
     5: "SELECT name, department, floor, clearance, status FROM employees WHERE department = 'Security' AND status = 'active' AND floor = 1 AND clearance IN ('HIGH', 'CLASSIFIED');",
+}
+
+LEVEL1_DDL = """
+CREATE TABLE employees (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    department TEXT,
+    role TEXT,
+    salary INTEGER,
+    status TEXT,
+    joined_date TEXT,
+    floor INTEGER,
+    clearance TEXT
+);
+
+CREATE TABLE access_logs (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER,
+    location TEXT,
+    timestamp TEXT,
+    action TEXT
+);
+"""
+
+
+LEVEL_CONFIGS: dict[int, LevelConfig] = {
+    1: {
+        "ddl": LEVEL1_DDL,
+        "tables": {
+            "employees": LEVEL1_DATA["employees"],
+            "access_logs": LEVEL1_DATA["access_logs"],
+        },
+        "static_queries": LEVEL1_STATIC_QUERIES,
+    },
+    # Example — uncomment and fill when level 2 exists:
+    # 2: {
+    #     "ddl": "...",
+    #     "tables": {"some_table": [...]},
+    #     "static_queries": {1: "SELECT ..."},
+    # },
 }
