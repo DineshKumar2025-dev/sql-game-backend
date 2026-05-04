@@ -1,31 +1,62 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from app.api.routes.auth import _database_url
 from app.api.levels import level
 from app.api.levels.levelsdata import LEVEL_CONFIGS
 
 router = APIRouter()
 
 
+def _strip_leading_sql_noise(sql: str) -> str:
+    """Remove BOM, whitespace, and line/block comments before the first real statement."""
+    s = sql.strip().removeprefix("\ufeff")
+    while True:
+        t = s.lstrip()
+        if not t:
+            return ""
+        if t.startswith("--"):
+            nl = t.find("\n")
+            if nl == -1:
+                return ""
+            s = t[nl + 1:]
+            continue
+        if t.startswith("/*"):
+            end = t.find("*/")
+            if end == -1:
+                return t
+            s = t[end + 2:]
+            continue
+        return t
+
+
+def _is_select_like(sql: str) -> bool:
+    head = _strip_leading_sql_noise(sql).lower()
+    return head.startswith("select") or head.startswith("with")
+
+
 class VerifyRequest(BaseModel):
     query: str
     level: int
-    sublevel: int
+    sublevel: str
+    user_id: int | None = None
 
 
 @router.post("/verifycode")
 def verifycode(payload: VerifyRequest) -> dict[str, object]:
     sql = payload.query.strip()
-    if not sql:
+
+    if not _strip_leading_sql_noise(sql):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Query cannot be empty.",
         )
 
-    if not sql.lower().startswith("select"):
+    if not _is_select_like(sql):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only SELECT queries are allowed.",
+            detail="Only SELECT (or WITH … SELECT) queries are allowed.",
         )
 
     if payload.level not in LEVEL_CONFIGS:
@@ -35,12 +66,62 @@ def verifycode(payload: VerifyRequest) -> dict[str, object]:
         )
 
     level_result = level.verify_sublevel(sql, payload.level, payload.sublevel)
+    is_correct = level_result.get("is_correct")
+
+    if payload.user_id is not None:
+        conn = psycopg2.connect(_database_url())
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                # Check if record exists
+                cursor.execute(
+                    "SELECT * FROM levelscompleted WHERE user_id = %s AND level_id = %s",
+                    (payload.user_id, payload.sublevel)
+                )
+                rows = cursor.fetchall()
+
+                update_sql = None
+                params = None
+
+                if len(rows) > 0 and is_correct == True:
+                    # Record exists + correct → mark completed
+                    update_sql = "UPDATE levelscompleted SET query = %s, status = 'completed' WHERE user_id = %s AND level_id = %s"
+                    params = (sql, payload.user_id, payload.sublevel)
+
+                elif len(rows) > 0 and is_correct == False:
+                    # Record exists + wrong → keep 'completed' if already completed, else 'pending'
+                    new_status = 'completed' if rows[0].get("status") == 'completed' else 'pending'
+                    update_sql = "UPDATE levelscompleted SET query = %s, status = %s WHERE user_id = %s AND level_id = %s"
+                    params = (sql, new_status, payload.user_id, payload.sublevel)
+
+                elif len(rows) == 0 and is_correct == True:
+                    # No record + correct → insert as completed
+                    update_sql = "INSERT INTO levelscompleted (user_id, level_id, query, status) VALUES (%s, %s, %s, 'completed')"
+                    params = (payload.user_id, payload.sublevel, sql)
+
+                elif len(rows) == 0 and is_correct == False:
+                    # No record + wrong → insert as pending
+                    update_sql = "INSERT INTO levelscompleted (user_id, level_id, query, status) VALUES (%s, %s, %s, 'pending')"
+                    params = (payload.user_id, payload.sublevel, sql)
+
+                if update_sql and params:
+                    cursor.execute(update_sql, params)
+                    conn.commit()
+
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database error: {str(e)}",
+            )
+        finally:
+            conn.close()
 
     result = {
-        "message": "Code verified" if level_result.get("is_correct") else "Query did not match expected output.",
-        "is_correct": level_result.get("is_correct", False),
+        "message": "Code verified" if is_correct else "Query did not match expected output.",
+        "is_correct": is_correct or False,
         "error": level_result.get("error"),
         "output": level_result.get("output", []),
         "level_output": level_result.get("level_output", []),
+        "user_id": payload.user_id,
     }
     return result

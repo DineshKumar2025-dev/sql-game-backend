@@ -11,9 +11,10 @@ def _rows_to_set(rows: list[dict[str, object]]) -> set[tuple[tuple[str, object],
     return normalized
 
 
-def verify_sublevel(query: str, level: int, sublevel: int) -> dict[str, object]:
+def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
     """
     Run player query vs canonical `static_queries[sublevel]` on the same seeded DB.
+    Sublevel ids match the client (e.g. level 1 → l11, l12, …).
     Add levels only in `levelsdata.LEVEL_CONFIGS` (+ `seed_level` uses them automatically).
     """
     cfg = LEVEL_CONFIGS.get(level)

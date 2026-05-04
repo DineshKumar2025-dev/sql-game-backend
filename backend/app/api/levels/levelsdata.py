@@ -12,11 +12,11 @@ from typing import TypedDict
 
 
 class LevelConfig(TypedDict):
-    """One playable level: in-memory SQLite schema, seed data, expected queries by sub_index."""
+    """One playable level: in-memory SQLite schema, seed data, expected queries by sublevel id (e.g. l11)."""
 
     ddl: str
     tables: dict[str, list[dict[str, object]]]
-    static_queries: dict[int, str]
+    static_queries: dict[str, str]
 
 
 LEVEL1_DATA = {
@@ -160,12 +160,12 @@ LEVEL1_DATA = {
     ],
 }
 
-LEVEL1_STATIC_QUERIES: dict[int, str] = {
-    1: "SELECT name, department, role, status FROM employees where status = 'missing';",
-    2: "SELECT name, status FROM employees WHERE status <> 'active';",
-    3: "SELECT name, department, clearance FROM employees WHERE department = 'Engineering' AND clearance IN ('HIGH', 'CLASSIFIED');",
-    4: "SELECT employee_id, location, timestamp, action FROM access_logs WHERE location = 'Server Room' AND timestamp >= '2047-09-14 22:00:00';",
-    5: "SELECT name, department, floor, clearance, status FROM employees WHERE department = 'Security' AND status = 'active' AND floor = 1 AND clearance IN ('HIGH', 'CLASSIFIED');",
+LEVEL1_STATIC_QUERIES: dict[str, str] = {
+    "l11": "SELECT name, department, role, status FROM employees where status = 'missing';",
+    "l12": "SELECT name, status FROM employees WHERE status <> 'active';",
+    "l13": "SELECT name, department, clearance FROM employees WHERE department = 'Engineering' AND clearance IN ('HIGH', 'CLASSIFIED');",
+    "l14": "SELECT employee_id, location, timestamp, action FROM access_logs WHERE location = 'Server Room' AND timestamp >= '2047-09-14 22:00:00';",
+    "l15": "SELECT name, department, floor, clearance, status FROM employees WHERE department = 'Security' AND status = 'active' AND floor = 1 AND clearance IN ('HIGH', 'CLASSIFIED');",
 }
 
 LEVEL1_DDL = """
@@ -204,6 +204,6 @@ LEVEL_CONFIGS: dict[int, LevelConfig] = {
     # 2: {
     #     "ddl": "...",
     #     "tables": {"some_table": [...]},
-    #     "static_queries": {1: "SELECT ..."},
+    #     "static_queries": {"l21": "SELECT ..."},
     # },
 }
