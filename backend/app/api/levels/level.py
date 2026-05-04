@@ -25,7 +25,14 @@ def is_final_sublevel(level: int, sublevel: str) -> bool:
 
 def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
     """
-    Run player query vs canonical `static_queries[sublevel]` on the same seeded DB.
+    Run player SQL vs canonical `static_queries[sublevel]` on seeded in-memory SQLite.
+
+    For read-only levels the player SQL is typically a single SELECT; for write-heavy levels
+    (CRUD/transactions/indexing) the player SQL may be a multi-statement script.
+
+    In those cases, we execute the player's script, then evaluate correctness by running a
+    deterministic `check_queries[sublevel]` SELECT (if configured) on both the player's DB state
+    and the expected DB state.
     Sublevel ids match the client (e.g. level 1 → l11, l12, …).
     Add levels only in `levelsdata.LEVEL_CONFIGS` (+ `seed_level` uses them automatically).
     """
@@ -47,17 +54,36 @@ def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
             "level_output": [],
         }
 
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
+    check_query = cfg.get("check_queries", {}).get(sublevel) if isinstance(cfg, dict) else None
+    if not check_query:
+        check_query = expected_query
+
+    def _run_script(conn: sqlite3.Connection, sql: str) -> None:
+        # executescript supports multi-statement SQL; it does not return rows.
+        conn.executescript(sql)
+
+    def _run_select(conn: sqlite3.Connection, sql: str) -> list[dict[str, object]]:
+        cur = conn.execute(sql)
+        return [dict(row) for row in cur.fetchall()]
+
+    player_conn = sqlite3.connect(":memory:")
+    player_conn.row_factory = sqlite3.Row
+    expected_conn = sqlite3.connect(":memory:")
+    expected_conn.row_factory = sqlite3.Row
 
     try:
-        seed_level(conn, level)
+        seed_level(player_conn, level)
+        seed_level(expected_conn, level)
 
-        player_cursor = conn.execute(query)
-        output = [dict(row) for row in player_cursor.fetchall()]
+        # Apply player SQL (may mutate DB).
+        _run_script(player_conn, query)
 
-        expected_cursor = conn.execute(expected_query)
-        level_output = [dict(row) for row in expected_cursor.fetchall()]
+        # Apply expected SQL (may mutate DB).
+        _run_script(expected_conn, expected_query)
+
+        # Compare deterministic check query results after the scripts.
+        output = _run_select(player_conn, check_query)
+        level_output = _run_select(expected_conn, check_query)
     except sqlite3.Error as exc:
         return {
             "is_correct": False,
@@ -66,7 +92,8 @@ def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
             "level_output": [],
         }
     finally:
-        conn.close()
+        player_conn.close()
+        expected_conn.close()
 
     is_correct = _rows_to_set(output) == _rows_to_set(level_output)
     return {

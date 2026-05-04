@@ -53,7 +53,9 @@ def verifycode(payload: VerifyRequest) -> dict[str, object]:
             detail="Query cannot be empty.",
         )
 
-    if not _is_select_like(sql):
+    # Levels 1-6 are read-only SELECT missions.
+    # Levels 7+ can include CRUD / transactions / EXPLAIN / CREATE INDEX etc.
+    if payload.level <= 6 and not _is_select_like(sql):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only SELECT (or WITH … SELECT) queries are allowed.",
