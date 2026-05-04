@@ -84,16 +84,49 @@ def level_sublevel(level: int, user_id: int) -> dict[str, object] | None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(
-                "SELECT lc.level_id FROM levelscompleted lc "
-                "JOIN levels l ON lc.level_id = l.id AND l.main_level = %s "
-                "WHERE lc.user_id = %s",
+                "SELECT "
+                "    MAX(l.id) AS highest_level_completed, "
+                "    lc.status "
+                "FROM levelscompleted lc "
+                "JOIN levels l "
+                "    ON lc.level_id = l.id "
+                "    AND l.main_level = %s "
+                "WHERE lc.user_id = %s "
+                "GROUP BY lc.status",
                 (level, user_id),
             )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            row = cursor.fetchone()   # ← fetchone(), not fetchall()
+
+            if row is None:
+                return None
+
+            return {
+                "level_id": row["highest_level_completed"],
+                "status":   row["status"],
+            }
+
     except psycopg2.Error as e:
-        conn.rollback()
         logger.error("Database error in level_sublevel: %s", e)
+        raise
+    finally:
+        conn.close()
+
+def sublevel_query(level_key: str, user_id: int) -> str | None:
+    """level_key matches verifycode storage (e.g. l11), not numeric levels.id."""
+    conn = psycopg2.connect(_database_url())
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                "SELECT query FROM levelscompleted WHERE level_id = %s AND user_id = %s",
+                (level_key, user_id),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            q = row["query"]
+            return None if q is None else str(q)
+    except psycopg2.Error as e:
+        logger.error("Database error in sublevel_query: %s", e)
         raise
     finally:
         conn.close()

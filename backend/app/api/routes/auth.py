@@ -198,7 +198,6 @@ def signup(payload: SignupPayload) -> dict[str, object]:
         },
     }
 
-
 @router.post("/login")
 def login(payload: LoginPayload) -> dict[str, object]:
     connection = psycopg2.connect(_database_url())
@@ -216,8 +215,8 @@ def login(payload: LoginPayload) -> dict[str, object]:
                 FROM users u
                 LEFT JOIN levelscompleted lc ON u.user_id = lc.user_id
                 LEFT JOIN levels l ON lc.level_id = l.id AND l.main_level = 0
-                WHERE u.email= %s
-                GROUP BY u.user_id, u.user_name, u.email, u.password_hash; 
+                WHERE u.email = %s
+                GROUP BY u.user_id, u.user_name, u.email, u.password_hash
                 """,
                 (payload.email.lower(),),
             )
@@ -228,12 +227,14 @@ def login(payload: LoginPayload) -> dict[str, object]:
                     detail="Invalid email or password.",
                 )
 
-            user_id, user_name, email, password_hash = row
+            user_id, user_name, email, password_hash, highest_level_completed = row  # ← unpack all 5
+
             if not _verify_password(payload.password, password_hash):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid email or password.",
                 )
+
     except HTTPException:
         raise
     except psycopg2.Error as exc:
@@ -252,6 +253,6 @@ def login(payload: LoginPayload) -> dict[str, object]:
             "user_id": user_id,
             "user_name": user_name,
             "email": email,
-            "highest_level_completed": highest_level_completed,
+            "highest_level_completed": highest_level_completed,  # now defined
         },
     }
