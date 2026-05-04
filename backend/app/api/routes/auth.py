@@ -207,9 +207,17 @@ def login(payload: LoginPayload) -> dict[str, object]:
             _ensure_users_table(cursor)
             cursor.execute(
                 """
-                SELECT user_id, user_name, email, password_hash
-                FROM users
-                WHERE email = %s
+                SELECT 
+                    u.user_id, 
+                    u.user_name, 
+                    u.email, 
+                    u.password_hash, 
+                    MAX(l.id) AS highest_level_completed
+                FROM users u
+                LEFT JOIN levelscompleted lc ON u.user_id = lc.user_id
+                LEFT JOIN levels l ON lc.level_id = l.id AND l.main_level = 0
+                WHERE u.email= %s
+                GROUP BY u.user_id, u.user_name, u.email, u.password_hash; 
                 """,
                 (payload.email.lower(),),
             )
@@ -244,5 +252,6 @@ def login(payload: LoginPayload) -> dict[str, object]:
             "user_id": user_id,
             "user_name": user_name,
             "email": email,
+            "highest_level_completed": highest_level_completed,
         },
     }

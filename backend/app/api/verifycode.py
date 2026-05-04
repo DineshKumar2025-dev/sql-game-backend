@@ -103,8 +103,36 @@ def verifycode(payload: VerifyRequest) -> dict[str, object]:
                     update_sql = "INSERT INTO levelscompleted (user_id, level_id, query, status) VALUES (%s, %s, %s, 'pending')"
                     params = (payload.user_id, payload.sublevel, sql)
 
+                wrote = False
                 if update_sql and params:
                     cursor.execute(update_sql, params)
+                    wrote = True
+
+                if (
+                    is_correct
+                    and level.is_final_sublevel(payload.level, payload.sublevel)
+                ):
+                    main_level_id = str(payload.level)
+                    cursor.execute(
+                        "SELECT 1 FROM levelscompleted WHERE user_id = %s AND level_id = %s LIMIT 1",
+                        (payload.user_id, main_level_id),
+                    )
+                    rollup_query = "-- level completed"
+                    if cursor.fetchone() is not None:
+                        cursor.execute(
+                            "UPDATE levelscompleted SET query = %s, status = 'completed' "
+                            "WHERE user_id = %s AND level_id = %s",
+                            (rollup_query, payload.user_id, main_level_id),
+                        )
+                    else:
+                        cursor.execute(
+                            "INSERT INTO levelscompleted (user_id, level_id, query, status) "
+                            "VALUES (%s, %s, %s, 'completed')",
+                            (payload.user_id, main_level_id, rollup_query),
+                        )
+                    wrote = True
+
+                if wrote:
                     conn.commit()
 
         except Exception as e:

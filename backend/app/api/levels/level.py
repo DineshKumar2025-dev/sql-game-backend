@@ -11,6 +11,15 @@ def _rows_to_set(rows: list[dict[str, object]]) -> set[tuple[tuple[str, object],
     return normalized
 
 
+def is_final_sublevel(level: int, sublevel: str) -> bool:
+    """True if `sublevel` is the last key in that level's `static_queries` (insertion order)."""
+    cfg = LEVEL_CONFIGS.get(level)
+    if cfg is None:
+        return False
+    keys = list(cfg["static_queries"].keys())
+    return bool(keys) and keys[-1] == sublevel
+
+
 def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
     """
     Run player query vs canonical `static_queries[sublevel]` on the same seeded DB.
