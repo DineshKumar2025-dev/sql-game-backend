@@ -1,5 +1,8 @@
 import sqlite3
-
+import logging
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from app.api.routes.auth import _database_url
 from app.api.levels.levelsdata import LEVEL_CONFIGS
 from app.api.levels.seed_database import seed_level
 
@@ -72,3 +75,25 @@ def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
         "output": output,
         "level_output": level_output,
     }
+
+
+logger = logging.getLogger(__name__)
+
+def level_sublevel(level: int, user_id: int) -> dict[str, object] | None:
+    conn = psycopg2.connect(_database_url())
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                "SELECT lc.level_id FROM levelscompleted lc "
+                "JOIN levels l ON lc.level_id = l.id AND l.main_level = %s "
+                "WHERE lc.user_id = %s",
+                (level, user_id),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    except psycopg2.Error as e:
+        conn.rollback()
+        logger.error("Database error in level_sublevel: %s", e)
+        raise
+    finally:
+        conn.close()
