@@ -3,6 +3,7 @@ import hmac
 import os
 import random
 import secrets
+from urllib.parse import quote
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -55,7 +56,9 @@ def _database_url() -> str:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database is not configured. Set DATABASE_URL or DB_* env vars.",
         )
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}"
+    encoded_user = quote(user, safe="")
+    encoded_password = quote(password, safe="")
+    return f"postgresql://{encoded_user}:{encoded_password}@{host}:{port}/{name}"
 
 
 def _ensure_users_table(cursor) -> None:
