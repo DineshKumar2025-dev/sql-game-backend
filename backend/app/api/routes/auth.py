@@ -89,8 +89,9 @@ def _verify_password(password: str, encoded: str) -> bool:
 
 @router.post("/request-otp")
 def request_otp(payload: RequestOtpPayload) -> dict[str, object]:
-    connection = psycopg2.connect(_database_url())
+    connection = None
     try:
+        connection = psycopg2.connect(_database_url())
         with connection.cursor() as cursor:
             _ensure_users_table(cursor)
             cursor.execute("SELECT 1 FROM users WHERE email = %s", (payload.email.lower(),))
@@ -107,7 +108,8 @@ def request_otp(payload: RequestOtpPayload) -> dict[str, object]:
             detail=f"Database error: {exc}",
         ) from exc
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
 
     otp = f"{random.randint(0, 999999):06d}"
     expires_at = datetime.now(UTC) + timedelta(minutes=OTP_TTL_MINUTES)
@@ -150,9 +152,10 @@ def signup(payload: SignupPayload) -> dict[str, object]:
             detail="Invalid OTP.",
         )
 
-    connection = psycopg2.connect(_database_url())
-    connection.autocommit = False
+    connection = None
     try:
+        connection = psycopg2.connect(_database_url())
+        connection.autocommit = False
         with connection.cursor() as cursor:
             _ensure_users_table(cursor)
             cursor.execute("SELECT user_id FROM users WHERE email = %s", (payload.email.lower(),))
@@ -177,16 +180,19 @@ def signup(payload: SignupPayload) -> dict[str, object]:
             user_id, user_name, email = cursor.fetchone()
             connection.commit()
     except HTTPException:
-        connection.rollback()
+        if connection is not None:
+            connection.rollback()
         raise
     except psycopg2.Error as exc:
-        connection.rollback()
+        if connection is not None:
+            connection.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error: {exc}",
         ) from exc
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
         OTP_STORE.pop(key, None)
 
     return {
@@ -200,8 +206,9 @@ def signup(payload: SignupPayload) -> dict[str, object]:
 
 @router.post("/login")
 def login(payload: LoginPayload) -> dict[str, object]:
-    connection = psycopg2.connect(_database_url())
+    connection = None
     try:
+        connection = psycopg2.connect(_database_url())
         with connection.cursor() as cursor:
             _ensure_users_table(cursor)
             cursor.execute(
@@ -243,7 +250,8 @@ def login(payload: LoginPayload) -> dict[str, object]:
             detail=f"Database error: {exc}",
         ) from exc
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
 
     token = secrets.token_urlsafe(24)
     return {

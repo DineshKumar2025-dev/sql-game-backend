@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,10 +13,20 @@ app = FastAPI(
 )
 origins = [
     "https://sql-game-frontend.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
+
+# Optional override from deployment env, comma-separated.
+# Example: CORS_ORIGINS="https://a.vercel.app,https://b.vercel.app"
+extra_origins = os.getenv("CORS_ORIGINS", "").strip()
+if extra_origins:
+    origins.extend([origin.strip() for origin in extra_origins.split(",") if origin.strip()])
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
