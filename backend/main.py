@@ -1,5 +1,8 @@
 from app.main import app
+import os
 
+def _database_url() -> str:
+    return os.environ["POSTGRES_URL"]
 
 if __name__ == "__main__":
     import uvicorn

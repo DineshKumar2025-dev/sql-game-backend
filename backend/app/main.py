@@ -9,10 +9,12 @@ app = FastAPI(
     version="0.1.0",
     description="Backend API for the SQL game project.",
 )
-
+origins = [
+    "https://sql-game-frontend.vercel.app",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
