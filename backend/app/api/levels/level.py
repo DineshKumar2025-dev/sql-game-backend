@@ -54,9 +54,8 @@ def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
             "level_output": [],
         }
 
-    check_query = cfg.get("check_queries", {}).get(sublevel) if isinstance(cfg, dict) else None
-    if not check_query:
-        check_query = expected_query
+    check_queries = cfg.get("check_queries", {}) if isinstance(cfg, dict) else {}
+    check_query = check_queries.get(sublevel)
 
     def _run_script(conn: sqlite3.Connection, sql: str) -> None:
         # executescript supports multi-statement SQL; it does not return rows.
@@ -75,15 +74,16 @@ def verify_sublevel(query: str, level: int, sublevel: str) -> dict[str, object]:
         seed_level(player_conn, level)
         seed_level(expected_conn, level)
 
-        # Apply player SQL (may mutate DB).
-        _run_script(player_conn, query)
-
-        # Apply expected SQL (may mutate DB).
-        _run_script(expected_conn, expected_query)
-
-        # Compare deterministic check query results after the scripts.
-        output = _run_select(player_conn, check_query)
-        level_output = _run_select(expected_conn, check_query)
+        if check_query:
+            # State-based missions: run both scripts, then compare with deterministic checker.
+            _run_script(player_conn, query)
+            _run_script(expected_conn, expected_query)
+            output = _run_select(player_conn, check_query)
+            level_output = _run_select(expected_conn, check_query)
+        else:
+            # Result-based missions: compare the player's direct result with canonical query result.
+            output = _run_select(player_conn, query)
+            level_output = _run_select(expected_conn, expected_query)
     except sqlite3.Error as exc:
         return {
             "is_correct": False,
