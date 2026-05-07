@@ -146,12 +146,14 @@ def verifycode(payload: VerifyRequest) -> dict[str, object]:
         finally:
             conn.close()
 
+    if(is_correct):
+        output = level_result.get("output", [])
+    else:
+        output = level_result.get("level_output", []),
     result = {
         "message": "Code verified" if is_correct else "Query did not match expected output.",
         "is_correct": is_correct or False,
         "error": level_result.get("error"),
-        "output": level_result.get("output", []),
-        "level_output": level_result.get("level_output", []),
-        "user_id": payload.user_id,
+        "output": output,
     }
     return result

@@ -12,9 +12,10 @@ app = FastAPI(
     description="Backend API for the SQL game project.",
 )
 origins = [
-    "https://sql-game-frontend.vercel.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
 ]
 
 # Optional override from deployment env, comma-separated.
@@ -26,7 +27,8 @@ if extra_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    # Allow local dev servers on any localhost/127.0.0.1 port (Vite may switch ports).
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
