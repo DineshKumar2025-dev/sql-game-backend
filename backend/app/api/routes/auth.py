@@ -20,6 +20,7 @@ router = APIRouter()
 
 OTP_TTL_MINUTES = 10
 OTP_STORE: dict[str, dict[str, object]] = {}
+RESET_OTP_STORE: dict[str, dict[str, object]] = {}
 
 
 class RequestOtpPayload(BaseModel):
@@ -38,6 +39,16 @@ class SignupPayload(BaseModel):
 class LoginPayload(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+
+
+class ForgotPasswordRequestPayload(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordPayload(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 def _database_url() -> str:
@@ -265,5 +276,128 @@ def login(payload: LoginPayload) -> dict[str, object]:
             "user_name": user_name,
             "email": email,
             "highest_level_completed": highest_level_completed,  # now defined
+        },
+    }
+
+
+@router.post("/forgot-password/request-otp")
+def forgot_password_request_otp(payload: ForgotPasswordRequestPayload) -> dict[str, object]:
+    email_key = payload.email.lower()
+    user_name: str | None = None
+
+    connection = None
+    try:
+        connection = psycopg2.connect(_database_url())
+        with connection.cursor() as cursor:
+            _ensure_users_table(cursor)
+            cursor.execute(
+                "SELECT user_name FROM users WHERE email = %s",
+                (email_key,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No account found with this email.",
+                )
+            user_name = row[0]
+    except HTTPException:
+        raise
+    except psycopg2.Error as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {exc}",
+        ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+    otp = f"{random.randint(0, 999999):06d}"
+    expires_at = datetime.now(UTC) + timedelta(minutes=OTP_TTL_MINUTES)
+
+    RESET_OTP_STORE[email_key] = {
+        "otp": otp,
+        "expires_at": expires_at,
+    }
+
+    # Frontend can send this OTP using EmailJS.
+    return {
+        "message": "OTP generated. Send it to user email with EmailJS and verify.",
+        "otp": otp,
+        "user_name": user_name,
+        "expires_in_minutes": OTP_TTL_MINUTES,
+    }
+
+
+@router.post("/forgot-password/reset")
+def forgot_password_reset(payload: ResetPasswordPayload) -> dict[str, object]:
+    key = payload.email.lower()
+    otp_data = RESET_OTP_STORE.get(key)
+    if otp_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP not requested for this email.",
+        )
+
+    if datetime.now(UTC) > otp_data["expires_at"]:
+        RESET_OTP_STORE.pop(key, None)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP expired. Request a new OTP.",
+        )
+
+    if str(otp_data["otp"]) != payload.otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP.",
+        )
+
+    new_password_hash = _hash_password(payload.new_password)
+
+    connection = None
+    try:
+        connection = psycopg2.connect(_database_url())
+        connection.autocommit = False
+        with connection.cursor() as cursor:
+            _ensure_users_table(cursor)
+            cursor.execute(
+                """
+                UPDATE users
+                SET password_hash = %s
+                WHERE email = %s
+                RETURNING user_id, user_name, email
+                """,
+                (new_password_hash, key),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No account found with this email.",
+                )
+            connection.commit()
+            user_id, user_name, email = row
+    except HTTPException:
+        if connection is not None:
+            connection.rollback()
+        raise
+    except psycopg2.Error as exc:
+        if connection is not None:
+            connection.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {exc}",
+        ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+        RESET_OTP_STORE.pop(key, None)
+
+    return {
+        "message": "Password reset successful.",
+        "user": {
+            "user_id": user_id,
+            "user_name": user_name,
+            "email": email,
         },
     }
